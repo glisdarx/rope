@@ -24,10 +24,9 @@
             height: 100vh;
             position: relative;
             image-rendering: pixelated;
-            perspective: 1000px; /* 增加透视深度 */
+            perspective: 1000px;
         }
 
-        /* 【核心修改】: 开始界面 */
         .start-screen {
             position: absolute;
             top: 50%;
@@ -56,7 +55,7 @@
         .difficulty-buttons button:hover { background: white; color: black; text-shadow: none; }
         
         .game-area {
-            display: none; /* 初始隐藏 */
+            display: none;
             position: absolute;
             bottom: 80px;
             left: 50%;
@@ -105,13 +104,13 @@
         .player-leg.left { left: 15px; }
         .player-leg.right { right: 15px; }
         
-        .ui { display: none; /* 初始隐藏 */ position: absolute; top: 20px; left: 20px; font-size: 12px; z-index: 100; }
-        .score { margin-bottom: 10px; }
-        .lives { margin-bottom: 10px; }
+        /* 【核心修改】: 重构UI布局防止重叠 */
+        .ui-container { display: none; font-size: 12px; z-index: 100; }
+        .ui-top-left { position: absolute; top: 20px; left: 20px; text-align: left; }
+        .ui-top-right { position: absolute; top: 20px; right: 20px; text-align: right; }
+        .ui-bottom-center { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); }
+        .ui-top-left > div, .ui-top-right > div { margin-bottom: 10px; }
         .heart { color: #FF69B4; margin-right: 5px; }
-        
-        .speed-indicator { position: absolute; top: 20px; right: 20px; font-size: 10px; }
-        .instructions { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); text-align: center; font-size: 10px; }
         
         .game-over { display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(0, 0, 0, 0.9); padding: 30px; border-radius: 15px; text-align: center; z-index: 200; }
         .restart-btn { font-family: 'Press Start 2P', monospace; font-size: 10px; background: #4CAF50; color: white; border: none; padding: 10px 20px; margin-top: 20px; border-radius: 5px; cursor: pointer; transition: background 0.3s; }
@@ -120,7 +119,7 @@
         .lightning { position: absolute; width: 100%; height: 100%; background: linear-gradient(45deg, transparent 45%, yellow 50%, transparent 55%); opacity: 0; pointer-events: none; z-index: 150; }
         .lightning.active { opacity: 0.8; animation: flash 0.5s ease-out; }
         
-        .combo { position: absolute; top: 100px; right: 20px; font-size: 14px; color: #FFD700; transform: scale(0); transition: transform 0.3s ease; }
+        .combo { transform: scale(0); transition: transform 0.3s ease; color: #FFD700; }
         .combo.show { transform: scale(1); animation: pulse 0.5s ease; }
         
         .perfect-timing { position: absolute; top: 40%; left: 50%; transform: translate(-50%, -50%); color: #00FF00; font-size: 16px; opacity: 0; pointer-events: none; }
@@ -150,13 +149,19 @@
             <div class="jump-rope" id="jumpRope"><div class="rope-path" id="ropePath"></div></div>
             <div class="player" id="player"><div class="player-head"></div><div class="player-hat"></div><div class="player-arm left"></div><div class="player-arm right"></div><div class="player-leg left"></div><div class="player-leg right"></div></div>
         </div>
-        <div class="ui" id="ui">
-            <div class="score">Score: <span id="score">0</span></div>
-            <div class="lives">Lives: <span id="lives"></span></div>
-            <div class="level">Level: <span id="level">1</span></div>
-            <div class="speed-indicator">Speed: <span id="speedLevel">Normal</span></div>
-            <div class="instructions">Press SPACEBAR to jump</div>
-            <div class="combo" id="combo">COMBO x<span id="comboCount">0</span></div>
+        <div class="ui-container" id="uiContainer">
+            <div class="ui-top-left">
+                <div class="score">Score: <span id="score">0</span></div>
+                <div class="lives">Lives: <span id="lives"></span></div>
+                <div class="level">Level: <span id="level">1</span></div>
+            </div>
+            <div class="ui-top-right">
+                <div class="speed-indicator">Speed: <span id="speedLevel">Normal</span></div>
+                <div class="combo" id="combo">COMBO x<span id="comboCount">0</span></div>
+            </div>
+            <div class="ui-bottom-center">
+                <div class="instructions">Press SPACEBAR to jump</div>
+            </div>
             <div class="perfect-timing" id="perfectTiming">PERFECT!</div>
             <div class="lightning" id="lightning"></div>
         </div>
@@ -179,7 +184,7 @@
             speedLevel: document.getElementById('speedLevel'), combo: document.getElementById('combo'), comboCount: document.getElementById('comboCount'),
             gameOver: document.getElementById('gameOver'), finalScore: document.getElementById('finalScore'), survivedJumps: document.getElementById('survivedJumps'),
             lightning: document.getElementById('lightning'), perfectTiming: document.getElementById('perfectTiming'),
-            startScreen: document.getElementById('startScreen'), gameArea: document.getElementById('gameArea'), ui: document.getElementById('ui')
+            startScreen: document.getElementById('startScreen'), gameArea: document.getElementById('gameArea'), uiContainer: document.getElementById('uiContainer')
         };
         
         // Game State & Physics
@@ -193,7 +198,6 @@
         };
         let currentDifficulty;
         
-        // Rope Segments
         const ropeSegments = [];
         const numSegments = 40;
         const ropeColors = ['#e74c3c', '#f1c40f', '#2ecc71', '#3498db', '#9b59b6'];
@@ -205,20 +209,15 @@
             ropeSegments.push(segment);
         }
         
-        // Sound System
         const audioContext = new (window.AudioContext || window.webkitAudioContext)();
         function playSound(frequency, duration, type = 'sine', volume = 0.1) {
             if (audioContext.state === 'suspended') return;
-            const oscillator = audioContext.createOscillator();
-            const gainNode = audioContext.createGain();
-            oscillator.connect(gainNode);
-            gainNode.connect(audioContext.destination);
-            oscillator.frequency.value = frequency;
-            oscillator.type = type;
+            const oscillator = audioContext.createOscillator(), gainNode = audioContext.createGain();
+            oscillator.connect(gainNode); gainNode.connect(audioContext.destination);
+            oscillator.frequency.value = frequency; oscillator.type = type;
             gainNode.gain.setValueAtTime(volume, audioContext.currentTime);
             gainNode.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + duration);
-            oscillator.start(audioContext.currentTime);
-            oscillator.stop(audioContext.currentTime + duration);
+            oscillator.start(audioContext.currentTime); oscillator.stop(audioContext.currentTime + duration);
         }
         const sfx = {
             jump: () => playSound(440, 0.2, 'square', 0.1),
@@ -228,12 +227,11 @@
             levelUp: () => { playSound(523, 0.1, 'sine', 0.15); setTimeout(() => playSound(784, 0.2, 'sine', 0.15), 150); }
         };
 
-        // Game Flow
         function startGame(difficulty) {
             currentDifficulty = difficulty;
             uiElements.startScreen.style.display = 'none';
             uiElements.gameArea.style.display = 'block';
-            uiElements.ui.style.display = 'block';
+            uiElements.uiContainer.style.display = 'block';
             initializeGame();
             requestAnimationFrame(gameLoop);
         }
@@ -242,50 +240,52 @@
             const settings = DIFFICULTIES[currentDifficulty];
             score = 0; lives = 3; level = 1; combo = 0; jumpCount = 0;
             gameRunning = true; isJumping = false; hasClearedRope = false;
-            ropeSpeed = settings.ropeSpeed;
-            ropeAngle = 270;
+            ropeSpeed = settings.ropeSpeed; ropeAngle = 270;
             playerY = 30; playerVelocityY = 0;
             jumpStrength = settings.jumpStrength; gravity = 0.7;
             hitPauseDuration = settings.hitPause;
-
             uiElements.gameOver.style.display = 'none';
-            updateUI();
-            updateSpeedLevel();
+            updateUI(); updateSpeedLevel();
         }
         
-        // Update Functions
         function updateRopeAndArms() {
             const angleRad = ropeAngle * Math.PI / 180;
-            const holderCenterY = 100, holderRadius = 70;
-            const leftShoulder = { x: 85, y: 80 }, rightShoulder = { x: 615, y: 80 };
+            
+            // 【核心修改】: 定义物理锚点和尺寸
+            const ARM_LENGTH = 50;
+            const SHOULDER_Y = 80; // 从game-area顶部算起
+            const LEFT_SHOULDER_X = 85;
+            const RIGHT_SHOULDER_X = 615;
 
-            const handY = holderCenterY + Math.sin(angleRad) * holderRadius;
-            const handZ = Math.cos(angleRad) * holderRadius;
-            const leftHandPos = { x: leftShoulder.x, y: handY, z: handZ };
-            const rightHandPos = { x: rightShoulder.x, y: handY, z: handZ };
+            // 1. 计算手在3D空间中的偏移量 (相对于肩膀)
+            const handOffsetY = Math.sin(angleRad) * ARM_LENGTH;
+            const handOffsetZ = Math.cos(angleRad) * ARM_LENGTH;
 
-            // Update arms to point at hands
-            const leftArmAngle = Math.atan2(leftHandPos.y - leftShoulder.y, 1) * (180 / Math.PI); // Simplified rotation
-            const rightArmAngle = Math.atan2(rightHandPos.y - rightShoulder.y, 1) * (180 / Math.PI);
-            leftArm.style.transform = `rotateZ(${leftArmAngle}deg)`;
-            rightArm.style.transform = `rotateZ(${rightArmAngle}deg)`;
+            // 2. 计算左右两只手的最终3D坐标
+            const leftHandPos = { x: LEFT_SHOULDER_X, y: SHOULDER_Y + handOffsetY, z: handOffsetZ };
+            const rightHandPos = { x: RIGHT_SHOULDER_X, y: SHOULDER_Y + handOffsetY, z: handOffsetZ };
 
-            // Update rope based on hand positions
+            // 3. 更新手臂的视觉旋转以指向手的位置
+            leftArm.style.transform = `rotateZ(${Math.sin(angleRad) * 60 - 15}deg)`;
+            rightArm.style.transform = `rotateZ(${Math.sin(angleRad) * -60 + 15}deg)`;
+
+            // 4. 更新绳子，使其连接两只手
             const maxSag = 120;
-            const sagAmount = maxSag * (1 - Math.abs(handZ) / holderRadius);
+            const sagAmount = maxSag * (1 - Math.abs(handOffsetZ) / ARM_LENGTH);
             for (let i = 0; i < numSegments; i++) {
                 const p = i / (numSegments - 1);
                 const segmentX = leftHandPos.x + (rightHandPos.x - leftHandPos.x) * p;
                 const sag = (1 - Math.pow(2 * p - 1, 2)) * sagAmount;
-                const segmentY = handY + sag;
+                const segmentY = leftHandPos.y + sag;
+                const segmentZ = leftHandPos.z;
                 
                 const perspective = 1000;
-                const scale = perspective / (perspective - handZ);
+                const scale = perspective / (perspective - segmentZ);
                 const screenX = 350 + (segmentX - 350) * scale;
                 const screenY = 175 + (segmentY - 175) * scale;
                 
                 ropeSegments[i].style.transform = `translate(${screenX}px, ${screenY}px) scale(${scale})`;
-                ropeSegments[i].style.zIndex = handZ > 0 ? 11 : 9;
+                ropeSegments[i].style.zIndex = segmentZ > 0 ? 11 : 9;
             }
         }
         
@@ -315,7 +315,6 @@
             else uiElements.speedLevel.textContent = 'Fast';
         }
         
-        // Game Logic
         function jump() {
             if (!isJumping && gameRunning) {
                 isJumping = true;
@@ -328,9 +327,9 @@
             const ropeIsAtBottom = ropeAngle > 85 && ropeAngle < 105;
             
             if (ropeIsAtBottom) {
-                if (playerY <= 35) { // On the ground
+                if (playerY <= 35) {
                     hit();
-                } else if (!hasClearedRope) { // In the air, successful jump
+                } else if (!hasClearedRope) {
                     hasClearedRope = true;
                     score += 10 + combo * 2;
                     jumpCount++;
@@ -346,10 +345,7 @@
                     }
                 }
             }
-            // Reset flag when rope is at the top
-            if (ropeAngle > 260 && ropeAngle < 280) {
-                hasClearedRope = false;
-            }
+            if (ropeAngle > 260 && ropeAngle < 280) hasClearedRope = false;
         }
         
         function hit() {
@@ -365,11 +361,8 @@
             setTimeout(() => {
                 player.classList.remove('zapped');
                 uiElements.lightning.classList.remove('active');
-                if (lives > 0) {
-                    gameRunning = true;
-                } else {
-                    gameOver();
-                }
+                if (lives > 0) gameRunning = true;
+                else gameOver();
             }, hitPauseDuration);
         }
         
@@ -380,19 +373,17 @@
             uiElements.gameOver.style.display = 'block';
         }
         
-        // Event Listeners
         function handleInput(e) {
             e.preventDefault();
             if (audioContext.state === 'suspended') audioContext.resume();
-            if (gameRunning) jump();
+            if (uiElements.gameArea.style.display === 'block') jump();
         }
         document.addEventListener('keydown', e => e.code === 'Space' && handleInput(e));
         document.addEventListener('touchstart', handleInput);
         
-        // Main Game Loop
         let lastTime = 0;
         function gameLoop(timestamp) {
-            if (!gameRunning && lives <= 0) return; // Stop loop if game over
+            if (!gameRunning && lives <= 0) return;
             if (!lastTime) lastTime = timestamp;
             const deltaTime = timestamp - lastTime;
             lastTime = timestamp;
